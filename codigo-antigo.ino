@@ -1,192 +1,122 @@
-#include <SoftwareSerial.h>
+/**
+ * CODIGO REFERENTE A PLACA 2016 (LARC 2016) SEM MODO API NO XBEE
+ */
 
-#include <stdlib.h>
-#include <stdio.h>
+#include <XBee.h>
 #include <string.h>
 
-#define ROBO0
+void receivingSerial();
+void forward();
+void back();
+void turnRight();
+void turnLeft();
+void stopped();
 
-#ifdef ROBO0
-#define CARACTER_ROBOI '['
-#define CARACTER_ROBOF ']'
-#endif
+XBee xbee = XBee();
+Tx16Request tx;
+Rx16Response rx = Rx16Response();
 
-#ifdef ROBO1
-#define CARACTER_ROBOI '('
-#define CARACTER_ROBOF ')'
-#endif
+const byte PWM_MOTORB = 5;
+const byte AIN2 = 6;
+const byte AIN1 = 7;
+const byte STBY = 8;
+const byte BIN1 = 9;
+const byte BIN2 = 10;
+const byte PWM_MOTORA = 11;
 
-#ifdef ROBO2
-#define CARACTER_ROBOI '{'
-#define CARACTER_ROBOF '}'
-#endif
+int direction;
+int pwm1 = 0;
+int pwm2 = 0;
 
-#define rxPin 0
-#define txPin 1
-
-SoftwareSerial XBee =  SoftwareSerial(rxPin, txPin);
-
-int pwm_motor1 = 5;
-int ain2 = 6;
-int ain1 = 7;
-int stby = 8;
-int bin1 = 9;
-int bin2 = 10;
-int pwm_motor2 = 11;
-
-String mensagem;
-
-boolean recebeMensagem();
-boolean verificaCheckSum();
-void paraFrente();
-void paraTras();
-void paraDireita();
-void paraEsquerda();
-void parado();
+unsigned long last_millis = 0;
 
 void setup() {
-  pinMode(pwm_motor1, OUTPUT);//PWMA
-  pinMode(ain2, OUTPUT);//AIN2
-  pinMode(ain1, OUTPUT);//AIN1
-  pinMode(stby, OUTPUT);//STBY
-  pinMode(bin1, OUTPUT);//BIN1
-  pinMode(bin2, OUTPUT);//BIN2
-  pinMode(pwm_motor2, OUTPUT);//PWMB
 
-  pinMode(rxPin, INPUT);
-  pinMode(txPin, OUTPUT);
+  pinMode(AIN2, OUTPUT);
+  pinMode(AIN1, OUTPUT);
+  pinMode(STBY, OUTPUT);
+  pinMode(BIN1, OUTPUT);
+  pinMode(BIN2, OUTPUT);
+  pinMode(PWM_MOTORB, OUTPUT);
+  pinMode(PWM_MOTORA, OUTPUT);
 
-  XBee.begin(19200);
   Serial.begin(19200);
-  
+  xbee.setSerial(Serial);
 }
 
 void loop() {
+  receivingSerial();
 
-  //  549
-  // [ A 123 123 600 ]
-  //   mensagem = "A123123549]";
+  analogWrite(PWM_MOTORA, pwm1);
+  analogWrite(PWM_MOTORB, pwm2);
 
-  if (XBee.overflow()) {
-    Serial.println("Xbee overflow!");
+  switch (direction) {
+    case 'F': {
+        forward();
+      } break;
+    case 'B': {
+        back();
+      } break;
+    case 'R': {
+        turnRight();
+      } break;
+    case 'L': {
+        turnLeft();
+      } break;
+    case 'S': {
+        stopped();
+      } break;
   }
-  
-  mensagem = "";
-  if (recebeMensagem() && verificaCheckSum()) {
+}
 
-    String pwm1_s = mensagem.substring(4, 7);
-    String pwm2_s = mensagem.substring(1, 4);
+void receivingSerial() {
+  xbee.readPacket();
 
-    int pwm1 = pwm1_s.toInt();
-    int pwm2 = pwm2_s.toInt();
+  if (xbee.getResponse().isAvailable()) {
 
-    /*
-       Serial.print(pwm1);
-       Serial.print(" ");
-       Serial.print(pwm2);
-       Serial.print(" ");
-       Serial.println(mensagem[0]);
-    */
-    
-    analogWrite(pwm_motor1, pwm1);
-    analogWrite(pwm_motor2, pwm2);
-    digitalWrite(stby, HIGH); //NAO FUNCIONA SEM ISSO!!
+    if (xbee.getResponse().getApiId() == RX_16_RESPONSE) {
 
-    char direcao = mensagem[0];
-    switch (direcao) {
-      case 'A': {
-          paraFrente();
-        } break;
-      case 'V': {
-          paraTras();
-        } break;
-      case 'D': {
-          paraDireita();
-        } break;
-      case 'E': {
-          paraEsquerda();
-        } break;
-      case 'P': {
-          parado();
-        } break;
-      default: {
-          parado();
-        } break;
+      xbee.getResponse().getRx16Response(rx);
+
+      direction = int(rx.getData(0));
+      pwm1 = (rx.getData(1) - '0') * 100 + (rx.getData(2) - '0') * 10 + (rx.getData(3) - '0');
+      pwm2 = (rx.getData(4) - '0') * 100 + (rx.getData(5) - '0') * 10 + (rx.getData(6) - '0');
     }
   }
 }
 
-boolean recebeMensagem() {
-  if (XBee.available() > 0) {
-    char c = XBee.read();
-    char caracter[10] = "";
-
-    Serial.println(c);
-
-    if (c == CARACTER_ROBOI) {
-      XBee.readBytes(caracter, 10);
-      
-      for (int i = 0; i < 10; i++) {
-        mensagem = mensagem + caracter[i];
-      }
-     // Serial.println(mensagem);
-
-      return true;
-    } else {
-      return false;
-    }
-  } else {
-    return false;
-  }
+void forward() {
+  digitalWrite(AIN2, HIGH);
+  digitalWrite(AIN1, LOW);
+  digitalWrite(BIN1, HIGH);
+  digitalWrite(BIN2, LOW);
+  digitalWrite(STBY, HIGH);
 }
 
-boolean verificaCheckSum() {
-  int checkSumRecebido = 1;
-  int checkSumLido = 0;
-
-  String num = mensagem.substring(7, 10);
-  checkSumRecebido = num.toInt();
-
-  checkSumLido += int(CARACTER_ROBOI);
-  checkSumLido += int(CARACTER_ROBOF);
-
-  for (int i = 0 ; i < 7 ; i++) {
-    checkSumLido += int(mensagem[i]);
-  }
-
-  if (checkSumLido == checkSumRecebido) return true;
-  else return false;
-
+void back() {
+  digitalWrite(AIN2, LOW);
+  digitalWrite(AIN1, HIGH);
+  digitalWrite(BIN1, LOW);
+  digitalWrite(BIN2, HIGH);
+  digitalWrite(STBY, HIGH);
 }
 
-void paraFrente() {
-  digitalWrite(ain2, HIGH);
-  digitalWrite(ain1, LOW);
-  digitalWrite(bin1, HIGH);
-  digitalWrite(bin2, LOW);
+void turnRight() {
+  digitalWrite(AIN2, LOW);
+  digitalWrite(AIN1, HIGH);
+  digitalWrite(BIN1, HIGH);
+  digitalWrite(BIN2, LOW);
+  digitalWrite(STBY, HIGH);
 }
 
-void paraTras() {
-  digitalWrite(ain2, LOW);
-  digitalWrite(ain1, HIGH);
-  digitalWrite(bin1, LOW);
-  digitalWrite(bin2, HIGH);
+void turnLeft() {
+  digitalWrite(AIN2, HIGH);
+  digitalWrite(AIN1, LOW);
+  digitalWrite(BIN1, LOW);
+  digitalWrite(BIN2, HIGH);
+  digitalWrite(STBY, HIGH);
 }
 
-void paraDireita() {
-  digitalWrite(ain2, LOW);
-  digitalWrite(ain1, HIGH);
-  digitalWrite(bin1, HIGH);
-  digitalWrite(bin2, LOW);
-}
-
-void paraEsquerda() {
-  digitalWrite(ain2, HIGH);
-  digitalWrite(ain1, LOW);
-  digitalWrite(bin1, LOW);
-  digitalWrite(bin2, HIGH);
-}
-
-void parado() {
-  digitalWrite(stby, LOW);
+void stopped() {
+  digitalWrite(STBY, LOW);
 }
